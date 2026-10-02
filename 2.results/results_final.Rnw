@@ -1,0 +1,605 @@
+\documentclass[11pt]{article}
+%\usepackage[showframe]{geometry}
+\usepackage{caption}
+\usepackage{lscape,verbatim,mathrsfs}
+\usepackage{graphics,amsmath,pstricks}
+\usepackage{amssymb,enumerate}
+\usepackage{amsbsy,amsmath,amsthm,amsfonts, amssymb}
+\usepackage{graphicx, rotate, array}
+\usepackage{geometry,multirow}
+\usepackage{color,soul}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[authoryear,round]{natbib}
+%\renewcommand{\baselinestretch}{1.9}
+\usepackage{tcolorbox}
+
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{colortbl}
+\usepackage{pdflscape}
+\usepackage{tabu}
+\usepackage{threeparttable}
+\usepackage{threeparttablex}
+\usepackage[normalem]{ulem}
+\usepackage{makecell}
+\usepackage{xcolor}
+\usepackage{rotating}
+
+\renewcommand{\familydefault}{cmss}
+\textwidth=6.65in \textheight=9.7in
+\parskip=.025in
+\parindent=0in
+\oddsidemargin=-0.1in \evensidemargin=-.1in \headheight=-.6in
+\footskip=0.5in \DeclareMathOperator*{\argmax}{argmax}
+\DeclareMathOperator*{\argmin}{argmin}
+
+
+\begin{document}
+\part*{Results for DDDM paper}
+
+<<r settings, echo = F>>=
+knitr::opts_chunk$set(comment = NA
+                      , warning = FALSE
+                      , message = FALSE
+                      , tidy = TRUE)
+knitr::opts_knit$set(root.dir = '../../')
+@
+
+
+
+<<echo = F>>=
+library(xtable)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(ggpubr)
+library(knitr)
+library(tableone)
+library(patchwork)
+library('latex2exp')
+
+load("paper dddm/2.results/1.subgroup_results.RData")
+load("paper dddm/2.results/2.riskscore_results.RData")
+load("paper dddm/2.results/3.odtr_and_value_results.RData")
+
+load("/Users/linamontoya/Dropbox/Interventions - Working Data (1)/Lina/process data/analysis-data-interventions.RData")
+data = data[!is.na(data$Y_nonminorarrest0to2yr),]
+data = data[data$W_ResearchSite == "San Francisco",]
+data$W_ResearchSite = NULL
+
+W = data[,grep("W_", colnames(data))]
+A = data$A_Condition #ifelse(data$A_Condition == "Intervention", 1, 0)
+Y = data$Y_nonminorarrest0to2yr
+@
+
+
+\section{Subgroup analysis}
+
+<<echo = F>>=
+
+levels(data$W_Arrest_MostSerious10.4)[levels(data$W_Arrest_MostSerious10.4) == "Drug crimes and minor crimes"] <- "Drug/minor crimes"
+levels(data$W_HighestGrade3.1)[levels(data$W_HighestGrade3.1) == "Some college/grad/postgrad"] <- "Some college+"
+levels(data$W_HighestGrade3.1)[levels(data$W_HighestGrade3.1) == "High school graduate/GED"] <- "High school grad/GED"
+sig_Ws = names(results_subgroup)[unlist(lapply(1:length(results_subgroup), function(i) results_subgroup[[i]]$LRT_pval) < 0.1)]
+W_names = c("Education", "Most serious arrest", "Antisocial intent")
+
+# Build plotting dataframe
+plot_df <- do.call(
+  rbind,
+  lapply(seq_along(sig_Ws), function(i) {
+
+    x <- data[[sig_Ws[i]]]
+
+    # Median split numeric variables
+    if (is.numeric(x) && length(unique(x)) > 4) {
+      x <- ifelse(
+        x <= median(x, na.rm = TRUE),
+        "Q1",
+        "Q2"
+      )
+    }
+
+    tmp <- data.frame(
+      level = x,
+      A = data$A_Condition,
+      Y = data$Y_nonminorarrest0to2yr
+    )
+
+    risks <- tmp %>%
+      group_by(level, A) %>%
+      summarise(risk = mean(Y), .groups = "drop")
+
+    levels_here <- sort(unique(risks$level))
+
+    data.frame(
+      subgroup = W_names[i],
+      level = levels_here,
+      cate = sapply(levels_here, function(l) {
+        risks$risk[
+          risks$A == "Intervention" &
+            risks$level == l
+        ] -
+          risks$risk[
+            risks$A == "Control" &
+              risks$level == l
+          ]
+      })
+    )
+  })
+)
+
+# Cleaner labels
+plot_df$level <- dplyr::recode(
+  plot_df$level,
+  "0-11th grade" = "0-11th\ngrade",
+  "High school grad/GED" = "HS grad/\nGED",
+  "Some college/grad/postgrad" = "Some\ncollege+",
+  "Drug/minor crimes" = "Drug/\nminor",
+  "Property crimes" = "Property",
+  "Other person" = "Other",
+  "Violent" = "Violent",
+  "Q1" = "Below\nmedian",
+  "Q2" = "Above\nmedian"
+)
+
+# Plot
+subgroups_plot <- ggplot(
+  plot_df,
+  aes(x = level, y = cate)
+) +
+  geom_col(
+    fill = "grey50",
+    width = 0.6
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linewidth = 0.4
+  ) +
+  facet_grid(
+    ~ subgroup,
+    scales = "free_x",
+    space = "free_x"
+  ) +
+  labs(
+    x = NULL,
+    y = "Estimated re-arrest risk difference,\nCBT vs. treatment-as-usual"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 9),
+    axis.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 10)
+  )
+
+subgroups_plot
+
+ggsave(
+  filename = "paper dddm/3.figures/subgroups.png",
+  plot = subgroups_plot,
+  width = 8,
+  height = 4.5,
+  dpi = 300,
+  bg = "white"
+)
+
+# plot_subgrps <- function(data, sig_Ws, W_names) {
+# 
+#   cleaned = data[,sig_Ws]
+#   tobreak = (sapply(cleaned, class) == "numeric") & sapply(cleaned, function(x) length(unique(x))) > 4
+#   cleaned[,tobreak] = sapply(data.frame(cleaned[,tobreak]), function(x) paste0("Q", cut(x, breaks = quantile(x, (0:2)/2, na.rm = T), F, T)))
+#   colnames(cleaned[,tobreak]) = names(tobreak)[tobreak]
+#   cleaned$A = data$A_Condition
+#   cleaned$Y = data$Y_nonminorarrest0to2yr
+# 
+# 
+#   plots = lapply(1:length(sig_Ws), function(w) {
+#     test = cleaned %>%
+#     group_by(A, cleaned[,w]) %>%
+#     summarize(mean(Y))
+#     test = data.frame(y = test[test$A == "Intervention",]$`mean(Y)` - test[test$A == "Control",]$`mean(Y)`,
+#                       x = levels(factor(cleaned[,w])))
+# 
+#   ggplot(test, aes(x = x, y = y)) +
+#     geom_bar(stat="identity", width = 0.5) +
+#     labs(x = W_names[w], y = "") +
+#   theme_minimal() +
+#   theme(legend.position="none")
+#   }
+#   )
+# 
+#   return(plots)
+# }
+# 
+# sig_Ws = names(results_subgroup)[unlist(lapply(1:length(results_subgroup), function(i) results_subgroup[[i]]$LRT_pval) < 0.1)]
+# subgrp_plots <- plot_subgrps(data, sig_Ws, c("Education", "Most serious arrest", "Antisocial intent (median)"))
+# 
+# 
+# 
+# 
+# 
+# 
+# subgroups_plot <- arrangeGrob(
+#   grid.arrange(
+#     grobs = subgrp_plots,
+#     mylegend,
+#     ncol = 1,
+#     top = ""
+#   ),
+#   left = textGrob(
+#     "Estimated re-arrest risk difference, CBT vs. treatment-as-usual",
+#     rot = 90,
+#     gp = gpar(fontsize = 11)
+#   )
+# )
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# ggsave(
+#   filename = "paper dddm/3.figures/subgroups.png",
+#   plot = subgroups_plot,
+#   width = 6.5,
+#   height = 6,
+#   dpi = 300,
+#   bg = "white"
+# )
+# 
+
+@
+
+\section{Risk score}
+
+\subsection{SuperLearner}
+<<echo = F>>=
+results_SL
+
+df = data.frame(risk = results_riskscore, blip = -1*EYdopt_results$SL.odtr$SL.fit$SL.predict)
+cor(df$risk, df$blip)
+corr_predcate = ggplot(df, aes(x = blip, y = risk)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    x = "Estimated conditional average treatment effect (CATE) of CBT on re-arrest",
+    y = "Estimated conditional risk of re-arrest"
+  ) +
+  theme_minimal()
+
+corr_predcate
+
+ggsave(filename = "paper dddm/3.figures/corrpredcate.png", plot = corr_predcate, width = 7, height = 5.7, dpi = 300)
+@
+
+\subsection{LSI}
+<<echo = F>>=
+df_LSI = data.frame(LSI = W$W_LSIR_TotalScore15.9, blip = results_LSI$SL.fit$SL.predict)
+cor(df_LSI$LSI, df_LSI$blip)
+
+plot_df <- df_LSI %>%
+  group_by(LSI) %>%
+  summarize(
+    n = n(),
+    blip = unique(blip)
+  )
+
+LSI = ggplot(plot_df, aes(x = factor(LSI), y = n)) +
+  geom_col(fill = "steelblue") +
+  geom_text(
+    aes(label = paste0("CATE = ", round(blip, 3))),
+    vjust = -0.5
+  ) +
+  labs(
+    x = "LSI score",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+LSI
+
+#ggsave(filename = "paper dddm/3.figures/LSI.png", plot = LSI, width = 7, height = 5.7, dpi = 300)
+@
+
+\section{Optimal rule}
+
+
+<<echo = F>>=
+EYdopt_results$SL.odtr$SL.fit$coef
+blip = -1*EYdopt_results$SL.odtr$SL.fit$SL.predict
+cate_plot <- ggplot(
+  data = data.frame(blip = blip),
+  aes(x = blip)
+) +
+  geom_histogram(
+    aes(y = after_stat(count / sum(count))),
+    bins = 30,
+    color = "black",
+    fill = "grey80"
+  ) +
+  labs(
+    x = "Estimated CATE",
+    y = "Proportion of sample"
+  ) +
+  theme_minimal() +
+  geom_vline(xintercept = 0, linetype = "dashed")
+
+cate_plot
+
+ggsave(filename = "paper dddm/3.figures/cate.png", plot = cate_plot, width = 6.5, height = 6, dpi = 300)
+
+table(EYdopt_results$SL.odtr$dopt)
+table(ifelse(blip < 0, 1, 0))
+prop.table(table(ifelse(blip < 0, 1, 0)))
+# dist of W
+
+# Build analysis dataset
+## ---- Build analysis dataset ----
+table1_df <- data.frame(
+  dopt = ifelse(blip < 0, 1, 0),
+  W
+)
+
+## ---- Recode treatment variable ----
+table1_df$dopt <- factor(
+  table1_df$dopt,
+  levels = c(0, 1),
+  labels = c("TAU", "CBT")
+)
+
+## ---- Clean variable names ----
+## Remove leading "W_" and replace "_" with spaces
+names(table1_df) <- names(table1_df)
+names(table1_df) <- gsub("^W_", "", names(table1_df))
+names(table1_df) <- gsub("_", " ", names(table1_df))
+
+## ---- Identify categorical covariates ----
+## (exclude treatment variable)
+factor_vars <- names(table1_df)[
+  sapply(table1_df, is.factor) & names(table1_df) != "dopt"
+]
+
+## ---- Create Table 1 (NO tests, NO p-values) ----
+table1 <- CreateTableOne(
+  vars       = setdiff(names(table1_df), "dopt"),
+  strata     = "dopt",
+  data       = table1_df,
+  factorVars = factor_vars,
+  test       = FALSE
+)
+
+## ---- Convert Table 1 to printable matrix ----
+table1_mat <- print(
+  table1,
+  showAllLevels = TRUE,
+  quote = FALSE,
+  noSpaces = TRUE,
+  test = FALSE,
+  printToggle = FALSE
+)
+
+## ---- Remove accidental "X..." prefixes from row names ----
+rownames(table1_mat) <- gsub("^X+", "", rownames(table1_mat))
+
+## ---- Export to LaTeX via xtable ----
+xtab <- xtable(
+  table1_mat,
+  caption = "Baseline characteristics stratified by optimal treatment recommendation",
+  label   = "tab:table1_odtr"
+)
+
+print(
+  xtab,
+  include.rownames = TRUE,
+  booktabs = TRUE,
+  sanitize.text.function = identity
+)
+
+@
+
+\section{Values and contrasts}
+<<echo = F>>=
+1-EYdopt_results$EYdopt_estimates[c("Psi_TMLE", "CI_TMLE1", "CI_TMLE2"), 1]
+
+# Create dataframe of contrasts
+contrastest_results <- data.frame(
+  t(
+    EYdopt_results$EYdopt_estimates[
+      c("Psi_TMLE", "CI_TMLE1", "CI_TMLE2"),
+      -1
+    ]
+  )
+)
+
+colnames(contrastest_results) <- c(
+  "Psi",
+  "CI1",
+  "CI2"
+)
+
+contrastest_results$dtr_name <- c(
+  "Treat all",
+  "Treat none",
+  seq(0.1, 0.9, by = 0.1), "LSI",
+  "Education",
+  "Most serious arrest",
+  "Antisocial intent",
+  "All"
+)
+
+contrastest_results$rule_group <- c(
+  rep("Static", 2),
+  rep("Risk score", 10),
+  rep("Subgroup", 4)
+)
+
+# Add optimal rule
+opt_row <- data.frame(
+  Psi = 0,
+  CI1 = 0,
+  CI2 = 0,
+  dtr_name = "Optimal",
+  rule_group = "Optimal\n(referent)"
+)
+
+contrastest_results <- dplyr::bind_rows(
+  opt_row,
+  contrastest_results
+)
+
+contrastest_results$rule_group <- factor(
+  contrastest_results$rule_group,
+  levels = c(
+    "Optimal\n(referent)",
+    "Static",
+    "Risk score",
+    "Subgroup"
+  )
+)
+
+# Plot
+contrastest_plot <- ggplot(
+  contrastest_results,
+  aes(x = dtr_name, y = Psi)
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey50"
+  ) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = CI1, ymax = CI2),
+    width = 0.15
+  ) +
+  facet_grid(
+    ~ rule_group,
+    scales = "free_x",
+    space = "free_x"
+  ) +
+  labs(
+    #title = "Comparison of Data-Driven Treatment Decisions Relative to the Optimal Dynamic #\nTreatment Rule",
+    x = "Dynamic treatment rule",
+    y = "Estimated excess re-arrest risk"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    strip.text = element_text(
+      face = "bold"
+    )
+  )
+
+contrastest_plot
+
+ggsave(
+  filename = "paper dddm/3.figures/values.png",
+  plot = contrastest_plot,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
+
+
+# contrastest_results = data.frame(t(EYdopt_results$EYdopt_estimates[c("Psi_TMLE", "CI_TMLE1", "CI_TMLE2"), -1]))
+# colnames(contrastest_results) = c("Psi", "CI1", "CI2")
+# contrastest_results$dtr_name =c("Treat all", "Treat none", seq(0.1, 0.9, by = 0.1), "Education", "Most serious arrest", "Antisocial intent (median)", "All")
+# contrastest_results <- contrastest_results %>%
+#   mutate(
+#     rule_group = case_when(
+#       row_number() %in% 1:2 ~ "Static",
+#       row_number() %in% 3:11 ~ "Risk score",
+#       row_number() %in% 12:15 ~ "Subgroup"
+#     )
+#   )
+# 
+# contrastest_results$rule_group <- factor(contrastest_results$rule_group, levels = c("Static", "Risk score", "Subgroup"))
+# 
+# contrastest_plot = ggplot(contrastest_results, aes(x = dtr_name, y = Psi)) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+#   geom_point(size = 3) +
+#   geom_errorbar(
+#     aes(ymin = CI1, ymax = CI2),
+#     width = 0.15
+#   ) +
+#   facet_wrap(~ rule_group, scales = "free_x", nrow = 1) +
+#   labs(
+#     x = "Treatment rule for assigning CBT", #Rule",
+#     y = "Estimated risk difference compared to optimal rule"
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     strip.text = element_text(face = "bold")
+#   )
+# 
+# 
+# 
+# 
+# contrastest_plot
+# 
+# 
+# 
+# ggsave(filename = "paper dddm/3.figures/values.png", plot = contrastest_plot, width = 7, height = 5, dpi = 300)
+@
+
+
+<<echo = F>>=
+contrastest_results
+
+library(dplyr)
+library(xtable)
+
+tab <- contrastest_results %>%
+  transmute(
+    `Rule group` = rule_group,
+    `Treatment rule` = dtr_name,
+    `Risk difference` = round(Psi, 3),
+    `95\\% CI` = sprintf("(%.3f, %.3f)", CI1, CI2)
+  )
+
+# blank out repeated rule groups
+tab$`Rule group` <- ifelse(
+  duplicated(tab$`Rule group`),
+  "",
+  tab$`Rule group`
+)
+
+xt <- xtable(
+  tab,
+  caption = "Estimated risk difference in 2-year recidivism relative to the optimal treatment rule.",
+  label = "tab:contrast_results",
+  align = c("l", "l", "l", "l", "c")
+)
+
+print(
+  xt,
+  include.rownames = FALSE,
+  sanitize.text.function = identity,
+  comment = FALSE,
+  booktabs = TRUE
+)
+
+@
+
+
+
+
+
+
+\end{document}
